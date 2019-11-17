@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
-import 'utils/Validator.dart';
-import 'models/LoginRequest.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:kisanhub_assignment/auth.dart';
+import 'package:kisanhub_assignment/models/LoginResponse.dart';
+import 'package:kisanhub_assignment/utils/validator.dart';
+import 'package:kisanhub_assignment/models/LoginRequest.dart';
+import 'login_presenter.dart';
 
-class LoginPage extends StatefulWidget{
+class LoginPage extends StatefulWidget{ 
  
   LoginPage({Key key}) : super (key:key);
 
@@ -11,12 +15,22 @@ class LoginPage extends StatefulWidget{
 
 }
 
-class _LoginPageState extends State<LoginPage>{
+class _LoginPageState extends State<LoginPage> 
+      implements LoginScreenContract,AuthStateListener{
 
   GlobalKey<FormState> _key = GlobalKey();
+  final scaffoldKey = new GlobalKey<ScaffoldState>();
   bool _validate = false;
   LoginRequest _loginRequest = LoginRequest();
+  bool _isLoading = false;
+  BuildContext _ctx;
+  LoginScreenPresenter _loginScreenPresenter;
 
+  _LoginPageState(){
+    _loginScreenPresenter = LoginScreenPresenter(this);
+    var authStateProvider = new AuthStateProvider();
+    authStateProvider.subscribe(this);
+  }
 
   Widget getFormUI(){
 
@@ -32,7 +46,7 @@ class _LoginPageState extends State<LoginPage>{
       ),
       validator: Validator().validateEmail,
       onSaved: (String value){
-        _loginRequest.email = value;
+        _loginRequest.username = value;
       },
     );
 
@@ -82,7 +96,7 @@ class _LoginPageState extends State<LoginPage>{
         SizedBox(
           height: 35.0,
         ),
-        loginButon,
+        _isLoading ? new CircularProgressIndicator() : loginButon,
         SizedBox(
           height: 15.0,
         ),
@@ -90,12 +104,12 @@ class _LoginPageState extends State<LoginPage>{
     );
   }
 
-  _sendToServer() {
+  void _sendToServer() {
     if (_key.currentState.validate()) {
       // No any error in validation
+      setState(() => _isLoading = true);
       _key.currentState.save();
-      print("Email ${_loginRequest.email}");
-      print("Password ${_loginRequest.password}");
+      _loginScreenPresenter.doLogin(_loginRequest);
     } else {
       // validation error
       setState(() {
@@ -104,12 +118,16 @@ class _LoginPageState extends State<LoginPage>{
     }
   }
  
-
+  void _showSnackBar(String text) {
+    scaffoldKey.currentState
+        .showSnackBar(new SnackBar(content: new Text(text)));
+  }
 
   @override
   Widget build(BuildContext context){
-
+    _ctx = context;
     return Scaffold(
+      key: scaffoldKey,
       body: Center(
         child: Container(
           color: Colors.white,
@@ -124,6 +142,33 @@ class _LoginPageState extends State<LoginPage>{
         ),
       ),
     );   
+  }
+
+  @override
+  void onLoginError(String errorTxt) {
+    _showSnackBar(errorTxt);
+    setState(() => _isLoading = false);
+  }
+
+  @override
+  void onLoginSuccess(LoginResponse loginResponse) {
+    _showSnackBar(loginResponse.usertoken);
+    setState(() => _isLoading = false);
+    setUserLogin(loginResponse.usertoken);
+  }
+
+  Future<void> setUserLogin(String auth_token) async{
+    SharedPreferences pref = await SharedPreferences.getInstance();
+    pref.setString("auth_token", auth_token);
+    pref.setBool("is_login", true);
+    var authStateProvider = new AuthStateProvider();
+    authStateProvider.notify(AuthState.LOGGED_IN);
+ }
+
+  @override
+  void onAuthStateChanged(AuthState state) {
+    if(state == AuthState.LOGGED_IN)
+      Navigator.of(_ctx).pushReplacementNamed("/home");
   }
 
 }
